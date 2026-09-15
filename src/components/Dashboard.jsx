@@ -51,6 +51,9 @@ export default function SupplierDashboard() {
         `)
         .eq('user_id', user.id);
 
+      // riga per il debug
+       console.log("Dati ricevuti:", data, "Eventuale errore:", error);
+
       if (!error && data) {
         const plantList = data.map(item => ({
           ...item.plants,
