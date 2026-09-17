@@ -7,12 +7,19 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// Calcola quanti giorni ha davvero il mese selezionato (YYYY-MM),
+// invece di assumere sempre 31 giorni fissi.
+function getDaysInMonth(monthStr) {
+  const [year, month] = monthStr.split('-').map(Number);
+  return new Date(year, month, 0).getDate();
+}
+
 export default function SupplierDashboard() {
   const [user, setUser] = useState(null);
   const [plants, setPlants] = useState([]);
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [userAccessLevel, setUserAccessLevel] = useState('read'); // 'read' o 'write'
-  
+
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
   const [schedules, setSchedules] = useState([]);
   const [selectedUnit, setSelectedUnit] = useState('MWh');
@@ -79,7 +86,7 @@ export default function SupplierDashboard() {
   const fetchSchedules = async () => {
     setLoading(true);
     const startDate = `${selectedMonth}-01`;
-    const endDate = `${selectedMonth}-31`;
+    const endDate = `${selectedMonth}-${String(getDaysInMonth(selectedMonth)).padStart(2, '0')}`;
 
     const { data, error } = await supabase
       .from('production_schedules')
@@ -91,6 +98,10 @@ export default function SupplierDashboard() {
 
     if (!error) {
       setSchedules(data || []);
+    } else {
+      // Prima non veniva segnalato nulla in caso di errore: la tabella restava
+      // silenziosamente vuota. Ora almeno lo vediamo a schermo.
+      setMessage(`Errore nel caricamento della programmazione: ${error.message}`);
     }
     setLoading(false);
   };
@@ -117,7 +128,7 @@ export default function SupplierDashboard() {
   const handleValueChange = (dateStr, rawValue) => {
     const numericVal = parseFloat(rawValue) || 0;
     const factor = parseFloat(selectedPlant.conversion_factor_to_mwh) || 1;
-    
+
     const calculatedMwh = selectedUnit === 'MWh' ? numericVal : numericVal * factor;
 
     setSchedules(prev => {
@@ -153,7 +164,7 @@ export default function SupplierDashboard() {
     setMessage('');
 
     const modifiedItems = schedules.filter(item => item.is_dirty);
-    
+
     for (const item of modifiedItems) {
       const payload = {
         plant_id: selectedPlant.id,
@@ -185,13 +196,13 @@ export default function SupplierDashboard() {
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
       <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-md p-6">
-        
+
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">Programmazione Produzione</h1>
             <p className="text-sm text-gray-500">Gestione e inserimento previsioni energetiche</p>
           </div>
-          
+
           <div className="mt-4 md:mt-0 w-full md:w-auto">
             <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Seleziona Impianto</label>
             <select
@@ -263,7 +274,7 @@ export default function SupplierDashboard() {
               </tr>
             </thead>
             <tbody>
-              {Array.from({ length: 31 }, (_, i) => {
+              {Array.from({ length: getDaysInMonth(selectedMonth) }, (_, i) => {
                 const dayNum = String(i + 1).padStart(2, '0');
                 const dateStr = `${selectedMonth}-${dayNum}`;
                 const record = schedules.find(s => s.production_date === dateStr);
