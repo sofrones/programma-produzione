@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# File scaricati dalla chat di Claude, non fanno parte del codice sorgente
+Claude outputs/
