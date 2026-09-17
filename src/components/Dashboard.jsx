@@ -14,6 +14,22 @@ function getDaysInMonth(monthStr) {
   return new Date(year, month, 0).getDate();
 }
 
+// Formatta un numero con la virgola come separatore decimale (stile italiano)
+function formatItalianNumber(num, decimals = 3) {
+  if (num === null || num === undefined || Number.isNaN(Number(num))) return '';
+  return Number(num).toLocaleString('it-IT', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  });
+}
+
+// Formatta il fattore di conversione mantenendo tutte le cifre decimali configurate,
+// semplicemente sostituendo il punto con la virgola.
+function formatFactor(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).replace('.', ',');
+}
+
 export default function SupplierDashboard() {
   const [user, setUser] = useState(null);
   const [plants, setPlants] = useState([]);
@@ -22,7 +38,6 @@ export default function SupplierDashboard() {
 
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
   const [schedules, setSchedules] = useState([]);
-  const [selectedUnit, setSelectedUnit] = useState('MWh');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -32,7 +47,6 @@ export default function SupplierDashboard() {
 
   useEffect(() => {
     if (selectedPlant) {
-      setSelectedUnit(selectedPlant.default_input_unit || 'MWh');
       fetchSchedules();
     }
   }, [selectedPlant, selectedMonth]);
@@ -83,6 +97,15 @@ export default function SupplierDashboard() {
     }
   };
 
+  // Data un valore in MWh, calcola quanto varrebbe nell'unità di misura propria
+  // dell'impianto (usata per mostrare un valore "inserito" anche sulle righe
+  // generate automaticamente dal sistema, che salvano solo il valore in MWh).
+  const mwhToPlantUnit = (mwhValue, plant) => {
+    const factor = parseFloat(plant?.conversion_factor_to_mwh) || 1;
+    if (mwhValue === null || mwhValue === undefined) return null;
+    return Number(mwhValue) / factor;
+  };
+
   const fetchSchedules = async () => {
     setLoading(true);
     const startDate = `${selectedMonth}-01`;
@@ -97,7 +120,14 @@ export default function SupplierDashboard() {
       .order('production_date', { ascending: true });
 
     if (!error) {
-      setSchedules(data || []);
+      const withDisplay = (data || []).map((row) => {
+        const unitValue = row.raw_input_value ?? mwhToPlantUnit(row.forecast_value, selectedPlant);
+        return {
+          ...row,
+          display_value: unitValue !== null ? formatItalianNumber(unitValue) : ''
+        };
+      });
+      setSchedules(withDisplay);
     } else {
       // Prima non veniva segnalato nulla in caso di errore: la tabella restava
       // silenziosamente vuota. Ora almeno lo vediamo a schermo.
@@ -125,11 +155,15 @@ export default function SupplierDashboard() {
     return nowItaly < deadline;
   };
 
+  // rawValue è il testo digitato dall'utente (accetta sia virgola che punto
+  // come separatore decimale). L'unità è sempre quella dell'impianto: non
+  // esiste più una scelta libera che potesse generare valori misti.
   const handleValueChange = (dateStr, rawValue) => {
-    const numericVal = parseFloat(rawValue) || 0;
+    const normalized = rawValue.replace(',', '.');
+    const numericVal = parseFloat(normalized) || 0;
     const factor = parseFloat(selectedPlant.conversion_factor_to_mwh) || 1;
-
-    const calculatedMwh = selectedUnit === 'MWh' ? numericVal : numericVal * factor;
+    const calculatedMwh = numericVal * factor;
+    const unit = selectedPlant.default_input_unit;
 
     setSchedules(prev => {
       const index = prev.findIndex(item => item.production_date === dateStr);
@@ -138,7 +172,8 @@ export default function SupplierDashboard() {
         updated[index] = {
           ...updated[index],
           raw_input_value: numericVal,
-          input_unit: selectedUnit,
+          display_value: rawValue,
+          input_unit: unit,
           applied_conversion_factor: factor,
           forecast_value: calculatedMwh,
           is_dirty: true
@@ -148,7 +183,8 @@ export default function SupplierDashboard() {
           plant_id: selectedPlant.id,
           production_date: dateStr,
           raw_input_value: numericVal,
-          input_unit: selectedUnit,
+          display_value: rawValue,
+          input_unit: unit,
           applied_conversion_factor: factor,
           forecast_value: calculatedMwh,
           source_type: 'manual',
@@ -193,6 +229,8 @@ export default function SupplierDashboard() {
     setLoading(false);
   };
 
+  const unitLabel = selectedPlant?.default_input_unit || '';
+
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
       <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-md p-6">
@@ -231,46 +269,30 @@ export default function SupplierDashboard() {
               <span>Ore {selectedPlant.daily_cutoff_time} (G-{selectedPlant.daily_cutoff_days_before})</span>
             </div>
             <div>
-              <span className="font-semibold text-blue-900">Fattore MWh: </span>
-              <span>{selectedPlant.conversion_factor_to_mwh}</span>
+              <span className="font-semibold text-blue-900">Conversione: </span>
+              <span>1 {unitLabel} = {formatFactor(selectedPlant.conversion_factor_to_mwh)} MWh_pcs</span>
             </div>
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Mese di Riferimento</label>
-            <input
-              type="month"
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded-lg"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Unità di Misura Inserimento</label>
-            <select
-              value={selectedUnit}
-              onChange={(e) => setSelectedUnit(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded-lg"
-            >
-              <option value="MWh">MWh (Megawattora)</option>
-              <option value="kWh">kWh (Kilowattora)</option>
-              <option value="Sm3">Sm3 (Standard metri cubi)</option>
-              <option value="Nm3">Nm3 (Normal metri cubi)</option>
-            </select>
-          </div>
+        <div className="mb-6 max-w-xs">
+          <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Mese di Riferimento</label>
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded-lg"
+          />
         </div>
 
         <div className="overflow-x-auto mb-6">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-gray-100 border-b text-xs text-gray-600 uppercase">
-                <th className="p-3">Data</th>
-                <th className="p-3">Valore Inserito ({selectedUnit})</th>
-                <th className="p-3">Equivalente (MWh)</th>
-                <th className="p-3">Stato</th>
+              <tr className="bg-gray-100 border-b text-xs text-gray-600">
+                <th className="p-3 font-semibold">Data</th>
+                <th className="p-3 font-semibold">VALORE INSERITO ({unitLabel})</th>
+                <th className="p-3 font-semibold">EQUIVALENTE (MWh)</th>
+                <th className="p-3 font-semibold">Stato</th>
               </tr>
             </thead>
             <tbody>
@@ -285,17 +307,17 @@ export default function SupplierDashboard() {
                     <td className="p-3 font-medium text-gray-700">{dateStr}</td>
                     <td className="p-3">
                       <input
-                        type="number"
-                        step="0.001"
+                        type="text"
+                        inputMode="decimal"
                         disabled={!editable}
-                        value={record?.raw_input_value ?? record?.forecast_value ?? ''}
+                        value={record?.display_value ?? ''}
                         onChange={(e) => handleValueChange(dateStr, e.target.value)}
                         className={`w-32 p-1.5 border rounded ${editable ? 'border-gray-300 bg-white' : 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed'}`}
-                        placeholder="0.000"
+                        placeholder="0,000"
                       />
                     </td>
                     <td className="p-3 font-semibold text-gray-800">
-                      {record?.forecast_value ? Number(record.forecast_value).toFixed(3) : '0.000'} MWh
+                      {record?.forecast_value ? formatItalianNumber(record.forecast_value) : '0,000'} MWh
                     </td>
                     <td className="p-3">
                       {editable ? (
