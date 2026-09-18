@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { parseScheduleFile, downloadScheduleTemplate, isoToItalianDate } from '../utils/scheduleFile';
 
 
 // Inizializzazione Client Supabase con variabili d'ambiente Vite
@@ -40,6 +41,9 @@ export default function SupplierDashboard() {
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+
+  const [uploading, setUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState('');
 
   useEffect(() => {
     fetchUserDataAndPlants();
@@ -229,6 +233,124 @@ export default function SupplierDashboard() {
     setLoading(false);
   };
 
+  // Legge un file .xlsx/.csv/.txt e carica i valori riconosciuti nella tabella
+  // (come is_dirty), pronti per essere rivisti e confermati con "Salva Programmazione".
+  // Non scrive nulla direttamente su Supabase: la revisione umana prima del salvataggio
+  // resta un passaggio voluto, e il controllo del termine di modifica resta comunque
+  // applicato anche lato database dal trigger, come ulteriore rete di sicurezza.
+  //
+  // IMPORTANTE: tutto il calcolo (righe applicate, invariate, saltate) viene fatto
+  // in modo sincrono su un array locale PRIMA di chiamare setSchedules, e il
+  // messaggio di riepilogo viene costruito subito dopo con questi stessi valori.
+  // In precedenza il conteggio avveniva dentro la funzione di aggiornamento passata
+  // a setSchedules(prev => ...): React non garantisce che quella funzione venga
+  // eseguita in tempo utile prima delle righe di codice successive, quindi il
+  // messaggio veniva sempre costruito leggendo i contatori ancora a zero,
+  // risultando sempre in "0 valori modificati" indipendentemente dal contenuto
+  // reale del file caricato.
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = ''; // permette di ricaricare lo stesso file una seconda volta
+    if (!file || !selectedPlant) return;
+
+    setUploading(true);
+    setUploadMessage('');
+
+    try {
+      const { rows, errors } = await parseScheduleFile(file);
+      const factor = parseFloat(selectedPlant.conversion_factor_to_mwh) || 1;
+      const unit = selectedPlant.default_input_unit;
+
+      const skippedCutoff = [];
+      const skippedOtherMonth = [];
+      let appliedCount = 0;
+      let unchangedCount = 0;
+
+      const updated = [...schedules];
+
+      rows.forEach(({ productionDate, rawValue }) => {
+        if (!productionDate.startsWith(selectedMonth)) {
+          skippedOtherMonth.push(productionDate);
+          return;
+        }
+
+        const index = updated.findIndex(item => item.production_date === productionDate);
+        const existing = index >= 0 ? updated[index] : null;
+
+        // Confrontiamo con il valore già presente (anche per i giorni generati
+        // automaticamente dal sistema, che salvano solo il MWh): se il file
+        // riporta lo stesso valore, non lo trattiamo come una modifica.
+        const existingValue = existing?.raw_input_value ?? mwhToPlantUnit(existing?.forecast_value, selectedPlant);
+        if (existingValue !== null && existingValue !== undefined && Math.abs(existingValue - rawValue) < 1e-6) {
+          unchangedCount++;
+          return;
+        }
+
+        if (!isDateEditable(productionDate)) {
+          skippedCutoff.push(productionDate);
+          return;
+        }
+
+        const calculatedMwh = rawValue * factor;
+        const newItem = {
+          plant_id: selectedPlant.id,
+          production_date: productionDate,
+          raw_input_value: rawValue,
+          display_value: formatItalianNumber(rawValue),
+          input_unit: unit,
+          applied_conversion_factor: factor,
+          forecast_value: calculatedMwh,
+          source_type: 'manual',
+          is_dirty: true
+        };
+
+        if (index >= 0) {
+          updated[index] = { ...updated[index], ...newItem };
+        } else {
+          updated.push(newItem);
+        }
+        appliedCount++;
+      });
+
+      setSchedules(updated);
+
+      const parts = [`File letto: ${appliedCount} valore/i realmente modificato/i, pronto/i per il salvataggio.`];
+      if (unchangedCount > 0) {
+        parts.push(`${unchangedCount} valore/i identico/i a quello già presente, ignorato/i.`);
+      }
+      if (skippedCutoff.length > 0) {
+        parts.push(
+          `${skippedCutoff.length} data/e saltate perché oltre il termine di modifica (${skippedCutoff.map(isoToItalianDate).join(', ')}).`
+        );
+      }
+      if (skippedOtherMonth.length > 0) {
+        parts.push(`${skippedOtherMonth.length} data/e ignorate perché fuori dal mese selezionato.`);
+      }
+      if (errors.length > 0) {
+        parts.push(`Attenzione, ${errors.length} riga/e con errori: ${errors.join(' | ')}.`);
+      }
+      if (appliedCount > 0) {
+        parts.push('Controlla i valori in tabella e premi "Salva Programmazione" per confermare.');
+      }
+
+      setUploadMessage(parts.join(' '));
+    } catch (err) {
+      setUploadMessage(`Errore nella lettura del file: ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDownload = (format) => {
+    if (!selectedPlant) return;
+    downloadScheduleTemplate(format, {
+      selectedMonth,
+      daysInMonth: getDaysInMonth(selectedMonth),
+      schedules,
+      plant: selectedPlant
+    });
+  };
+
   const unitLabel = selectedPlant?.default_input_unit || '';
 
   return (
@@ -275,15 +397,70 @@ export default function SupplierDashboard() {
           </div>
         )}
 
-        <div className="mb-6 max-w-xs">
-          <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Mese di Riferimento</label>
-          <input
-            type="month"
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-lg"
-          />
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
+          <div className="max-w-xs">
+            <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Mese di Riferimento</label>
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-lg"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-4 md:gap-6 items-end">
+            {userAccessLevel === 'write' && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
+                  Carica da file (.xlsx/.csv/.txt)
+                </label>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv,.txt"
+                  onChange={handleFileUpload}
+                  disabled={uploading || !selectedPlant}
+                  className="text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-blue-600 file:text-white file:text-sm hover:file:bg-blue-700"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Scarica modello</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDownload('xlsx')}
+                  disabled={!selectedPlant}
+                  className="text-xs font-semibold text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-3 py-1.5 disabled:opacity-50"
+                >
+                  .xlsx
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDownload('csv')}
+                  disabled={!selectedPlant}
+                  className="text-xs font-semibold text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-3 py-1.5 disabled:opacity-50"
+                >
+                  .csv
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDownload('txt')}
+                  disabled={!selectedPlant}
+                  className="text-xs font-semibold text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-3 py-1.5 disabled:opacity-50"
+                >
+                  .txt
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
+
+        {uploadMessage && (
+          <p className="mb-4 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded p-2">
+            {uploadMessage}
+          </p>
+        )}
 
         <div className="overflow-x-auto mb-6">
           <table className="w-full text-left border-collapse">
