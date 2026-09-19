@@ -71,17 +71,37 @@ export default function App() {
 
   return (
     <div>
-      <div className="bg-gray-800 text-white px-6 py-2 flex justify-between items-center text-sm">
-        <span>
-          Utente autenticato: <strong>{session.user.email}</strong>
-          {profile?.full_name && <span className="text-gray-300"> ({profile.full_name})</span>}
-        </span>
-        <button
-          onClick={() => supabase.auth.signOut()}
-          className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded font-medium text-xs transition"
-        >
-          Logout
-        </button>
+      <div className="bg-gray-800 text-white px-4 sm:px-6 py-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
+        <div className="flex items-center justify-between sm:justify-start">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 48" className="h-7 sm:h-9 md:h-10 lg:h-12 w-auto">
+            <rect width="42" height="42" rx="10" fill="#3b82f6" />
+            <rect x="8" y="10" width="26" height="22" rx="3" fill="none" stroke="white" strokeWidth="2.4" />
+            <line x1="8" y1="17" x2="34" y2="17" stroke="white" strokeWidth="2.4" />
+            <line x1="14.5" y1="7" x2="14.5" y2="13" stroke="white" strokeWidth="2.4" strokeLinecap="round" />
+            <line x1="27.5" y1="7" x2="27.5" y2="13" stroke="white" strokeWidth="2.4" strokeLinecap="round" />
+            <polyline points="12,27.5 18,22 23,24.5 30,16.5" fill="none" stroke="#4ade80" strokeWidth="2.7" strokeLinecap="round" strokeLinejoin="round" />
+            <text x="53" y="26" fontFamily="Arial, Helvetica, sans-serif" fontWeight="700" fontSize="20" fill="white">NG <tspan fill="#cbd5e1" fontWeight="500">Prog</tspan></text>
+            <polyline points="53,34 72,31 93,34 124,26" fill="none" stroke="#4ade80" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            className="sm:hidden bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded font-medium text-xs transition"
+          >
+            Logout
+          </button>
+        </div>
+        <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 min-w-0">
+          <span className="truncate min-w-0 text-xs sm:text-sm">
+            Utente autenticato: <strong>{session.user.email}</strong>
+            {profile?.full_name && <span className="text-gray-300"> ({profile.full_name})</span>}
+          </span>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            className="hidden sm:inline-block shrink-0 bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded font-medium text-xs transition"
+          >
+            Logout
+          </button>
+        </div>
       </div>
 
       {isAdmin && (
