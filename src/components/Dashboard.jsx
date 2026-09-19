@@ -466,10 +466,10 @@ export default function SupplierDashboard() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-100 border-b text-xs text-gray-600">
-                <th className="p-3 font-semibold">Data</th>
-                <th className="p-3 font-semibold">VALORE INSERITO ({unitLabel})</th>
-                <th className="p-3 font-semibold">EQUIVALENTE (MWh)</th>
-                <th className="p-3 font-semibold">Stato</th>
+                <th className="p-2 font-semibold">Data</th>
+                <th className="p-2 font-semibold">VALORE INSERITO ({unitLabel})</th>
+                <th className="p-2 font-semibold">EQUIVALENTE (MWh)</th>
+                <th className="p-2 font-semibold text-center">Stato</th>
               </tr>
             </thead>
             <tbody>
@@ -481,27 +481,33 @@ export default function SupplierDashboard() {
 
                 return (
                   <tr key={dateStr} className="border-b hover:bg-gray-50">
-                    <td className="p-3 font-medium text-gray-700">{dateStr}</td>
-                    <td className="p-3">
+                    <td className="p-2 font-medium text-gray-700">{dateStr}</td>
+                    <td className="p-2">
                       <input
                         type="text"
                         inputMode="decimal"
                         disabled={!editable}
                         value={record?.display_value ?? ''}
                         onChange={(e) => handleValueChange(dateStr, e.target.value)}
-                        className={`w-32 p-1.5 border rounded ${editable ? 'border-gray-300 bg-white' : 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed'}`}
+                        className={`w-20 p-1.5 border rounded ${editable ? 'border-gray-300 bg-white' : 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed'}`}
                         placeholder="0,000"
                       />
                     </td>
-                    <td className="p-3 font-semibold text-gray-800">
+                    <td className="p-2 font-semibold text-gray-800">
                       {record?.forecast_value ? formatItalianNumber(record.forecast_value) : '0,000'} MWh
                     </td>
-                    <td className="p-3">
-                      {editable ? (
-                        <span className="text-xs text-green-600 font-medium">Modificabile</span>
-                      ) : (
-                        <span className="text-xs text-gray-400 font-medium flex items-center">🔒 Bloccato</span>
-                      )}
+                    <td className="p-2 text-center">
+                      <span title={editable ? 'Modificabile' : 'Bloccato'}>
+                        {editable ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-green-600 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-gray-400 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                        )}
+                      </span>
                     </td>
                   </tr>
                 );
