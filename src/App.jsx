@@ -3,12 +3,14 @@ import { supabase } from './supabaseClient';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import AdminPlants from './components/AdminPlants';
+import ResetPassword from './components/ResetPassword';
 
 export default function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('produzione');
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
 
   useEffect(() => {
     // 1. Verifica se c'è già un utente autenticato
@@ -21,11 +23,21 @@ export default function App() {
       }
     });
 
-    // 2. Rimani in ascolto per i cambi di stato (Login / Logout)
+    // 2. Rimani in ascolto per i cambi di stato (Login / Logout / recupero password)
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
+
+      if (event === 'PASSWORD_RECOVERY') {
+        // L'utente ha cliccato il link "Password dimenticata?" ricevuto via email:
+        // Supabase ha già creato una sessione temporanea di recovery. Mostriamo il
+        // form per la nuova password invece della dashboard, senza caricare il profilo.
+        setPasswordRecovery(true);
+        setLoading(false);
+        return;
+      }
+
       if (session) {
         fetchProfile(session.user.id);
       } else {
@@ -36,6 +48,18 @@ export default function App() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Chiamata quando l'utente ha impostato con successo la nuova password:
+  // esce dalla schermata di recovery e prosegue nel normale flusso dell'app.
+  const handleRecoveryDone = () => {
+    setPasswordRecovery(false);
+    if (session) {
+      setLoading(true);
+      fetchProfile(session.user.id);
+    } else {
+      setLoading(false);
+    }
+  };
 
   // Recupera il profilo (in particolare il ruolo) dell'utente autenticato
   const fetchProfile = async (userId) => {
@@ -60,6 +84,12 @@ export default function App() {
         Caricamento sessione in corso...
       </div>
     );
+  }
+
+  // Utente arrivato dal link di recupero password: mostra il form dedicato
+  // prima di qualunque altra cosa, anche se una sessione (temporanea) esiste già.
+  if (passwordRecovery) {
+    return <ResetPassword onSuccess={handleRecoveryDone} />;
   }
 
   // Se l'utente non è loggato, mostra la pagina di Login
