@@ -39,6 +39,7 @@ export default function AdminPlants() {
   });
   const [newUserPlants, setNewUserPlants] = useState({});
   const [inviting, setInviting] = useState(false);
+  const [processingUserId, setProcessingUserId] = useState(null);
 
   useEffect(() => {
     fetchAll();
@@ -50,7 +51,7 @@ export default function AdminPlants() {
 
     const [plantsRes, profilesRes, accessesRes] = await Promise.all([
       supabase.from('plants').select('*').order('name'),
-      supabase.from('profiles').select('id, full_name, company_name, role').order('full_name'),
+      supabase.from('profiles').select('id, full_name, company_name, role, is_active').order('full_name'),
       supabase.from('user_plant_access').select('id, user_id, plant_id, access_level')
     ]);
 
@@ -168,6 +169,9 @@ export default function AdminPlants() {
   };
 
   const accessesForPlant = (plantId) => accesses.filter((a) => a.plant_id === plantId);
+  const accessesForUser = (userId) => accesses.filter((a) => a.user_id === userId);
+
+  const plantLabel = (plantId) => plants.find((pl) => pl.id === plantId)?.name || plantId;
 
   const profileLabel = (userId) => {
     const p = profiles.find((pr) => pr.id === userId);
@@ -278,6 +282,64 @@ export default function AdminPlants() {
     setMessage(`Utente invitato con successo (${newUserForm.email}). Riceverà una email per impostare la password.`);
     resetNewUserForm();
     setShowNewUserForm(false);
+    fetchAll();
+  };
+
+  const deactivateUser = async (profile) => {
+    const accessCount = accessesForUser(profile.id).length;
+    const confirmed = window.confirm(
+      `Disattivare "${profile.full_name || profile.id}"?\n\n` +
+        `Verranno revocati tutti gli accessi agli impianti (${accessCount}) e l'utente non potrà più accedere. ` +
+        `Lo storico delle sue azioni passate resta invariato e visibile.`
+    );
+    if (!confirmed) return;
+
+    setMessage('');
+    setError('');
+    setProcessingUserId(profile.id);
+
+    const { data, error: invokeError } = await supabase.functions.invoke('admin-set-user-active', {
+      body: { user_id: profile.id, active: false }
+    });
+
+    setProcessingUserId(null);
+
+    if (invokeError) {
+      setError(`Errore durante la disattivazione: ${invokeError.message}`);
+      return;
+    }
+    if (data?.error) {
+      setError(data.error);
+      return;
+    }
+
+    setMessage(`Utente "${profile.full_name || profile.id}" disattivato.`);
+    fetchAll();
+  };
+
+  const reactivateUser = async (profile) => {
+    setMessage('');
+    setError('');
+    setProcessingUserId(profile.id);
+
+    const { data, error: invokeError } = await supabase.functions.invoke('admin-set-user-active', {
+      body: { user_id: profile.id, active: true }
+    });
+
+    setProcessingUserId(null);
+
+    if (invokeError) {
+      setError(`Errore durante la riattivazione: ${invokeError.message}`);
+      return;
+    }
+    if (data?.error) {
+      setError(data.error);
+      return;
+    }
+
+    setMessage(
+      `Utente "${profile.full_name || profile.id}" riattivato. Ricordati di riassegnargli gli impianti da "Gestisci permessi".`
+    );
     fetchAll();
   };
 
@@ -430,7 +492,9 @@ export default function AdminPlants() {
                         >
                           <option value="">Seleziona utente...</option>
                           {profiles
-                            .filter((p) => !accessesForPlant(plant.id).some((a) => a.user_id === p.id))
+                            .filter(
+                              (p) => p.is_active !== false && !accessesForPlant(plant.id).some((a) => a.user_id === p.id)
+                            )
                             .map((p) => (
                               <option key={p.id} value={p.id}>
                                 {p.full_name || p.id} {p.company_name ? `— ${p.company_name}` : ''}
@@ -571,6 +635,70 @@ export default function AdminPlants() {
             </p>
           </div>
         )}
+
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">Elenco utenti</h3>
+          <div className="space-y-2">
+            {profiles.map((p) => {
+              const isActive = p.is_active !== false;
+              const userAccesses = accessesForUser(p.id);
+              return (
+                <div
+                  key={p.id}
+                  className={`flex flex-wrap items-start justify-between gap-2 border rounded-lg px-3 py-2 ${
+                    isActive ? 'border-gray-200 bg-white' : 'border-gray-200 bg-gray-50'
+                  }`}
+                >
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">
+                      {p.full_name || 'Senza nome'}
+                      {p.company_name ? ` — ${p.company_name}` : ''}
+                      <span
+                        className={`ml-2 text-xs font-bold px-2 py-0.5 rounded ${
+                          isActive ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-600'
+                        }`}
+                      >
+                        {isActive ? 'Attivo' : 'Disattivato'}
+                      </span>
+                      {p.role === 'admin' && (
+                        <span className="ml-2 text-xs font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+                          Admin
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {userAccesses.length === 0
+                        ? 'Nessun impianto assegnato.'
+                        : userAccesses
+                            .map((a) => `${plantLabel(a.plant_id)} (${a.access_level === 'write' ? 'scrittura' : 'lettura'})`)
+                            .join(', ')}
+                    </p>
+                  </div>
+                  <div>
+                    {isActive ? (
+                      <button
+                        onClick={() => deactivateUser(p)}
+                        disabled={processingUserId === p.id}
+                        className="text-xs font-semibold text-red-600 hover:text-red-800 border border-red-200 rounded px-3 py-1 disabled:opacity-50"
+                      >
+                        {processingUserId === p.id ? 'Attendere...' : 'Disattiva'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => reactivateUser(p)}
+                        disabled={processingUserId === p.id}
+                        className="text-xs font-semibold text-green-700 hover:text-green-900 border border-green-200 rounded px-3 py-1 disabled:opacity-50"
+                      >
+                        {processingUserId === p.id ? 'Attendere...' : 'Riattiva'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {profiles.length === 0 && <p className="text-sm text-gray-500">Nessun utente in anagrafica.</p>}
+          </div>
+        </div>
       </div>
     </div>
   );
