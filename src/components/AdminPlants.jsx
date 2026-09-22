@@ -30,6 +30,16 @@ export default function AdminPlants() {
   const [newAccessUserId, setNewAccessUserId] = useState('');
   const [newAccessLevel, setNewAccessLevel] = useState('read');
 
+  const [showNewUserForm, setShowNewUserForm] = useState(false);
+  const [newUserForm, setNewUserForm] = useState({
+    email: '',
+    full_name: '',
+    company_name: '',
+    role: 'fornitore'
+  });
+  const [newUserPlants, setNewUserPlants] = useState({});
+  const [inviting, setInviting] = useState(false);
+
   useEffect(() => {
     fetchAll();
   }, []);
@@ -201,6 +211,73 @@ export default function AdminPlants() {
       return;
     }
 
+    fetchAll();
+  };
+
+  const togglePlantForNewUser = (plantId, checked) => {
+    setNewUserPlants((prev) => {
+      const next = { ...prev };
+      if (checked) {
+        next[plantId] = next[plantId] || 'read';
+      } else {
+        delete next[plantId];
+      }
+      return next;
+    });
+  };
+
+  const setNewUserPlantLevel = (plantId, level) => {
+    setNewUserPlants((prev) => ({ ...prev, [plantId]: level }));
+  };
+
+  const resetNewUserForm = () => {
+    setNewUserForm({ email: '', full_name: '', company_name: '', role: 'fornitore' });
+    setNewUserPlants({});
+  };
+
+  const inviteUser = async () => {
+    setMessage('');
+    setError('');
+
+    if (!newUserForm.email.trim()) {
+      setError("L'email è obbligatoria.");
+      return;
+    }
+
+    const plantsPayload = Object.entries(newUserPlants).map(([plant_id, access_level]) => ({
+      plant_id,
+      access_level
+    }));
+
+    if (plantsPayload.length === 0) {
+      setError('Seleziona almeno un impianto da assegnare al nuovo utente.');
+      return;
+    }
+
+    setInviting(true);
+    const { data, error: invokeError } = await supabase.functions.invoke('admin-create-user', {
+      body: {
+        email: newUserForm.email.trim(),
+        full_name: newUserForm.full_name.trim(),
+        company_name: newUserForm.company_name.trim(),
+        role: newUserForm.role,
+        plants: plantsPayload
+      }
+    });
+    setInviting(false);
+
+    if (invokeError) {
+      setError(`Errore durante l'invito: ${invokeError.message}`);
+      return;
+    }
+    if (data?.error) {
+      setError(data.error);
+      return;
+    }
+
+    setMessage(`Utente invitato con successo (${newUserForm.email}). Riceverà una email per impostare la password.`);
+    resetNewUserForm();
+    setShowNewUserForm(false);
     fetchAll();
   };
 
@@ -386,6 +463,114 @@ export default function AdminPlants() {
             <p className="text-sm text-gray-500">Nessun impianto in anagrafica. Creane uno con il pulsante in alto.</p>
           )}
         </div>
+      </div>
+
+      <div className="max-w-5xl mx-auto bg-white rounded-xl shadow-md p-6 mt-6">
+        <div className="flex justify-between items-center border-b pb-4 mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-800">Utenti</h1>
+            <p className="text-sm text-gray-500">Crea un nuovo utente e assegna gli impianti di competenza</p>
+          </div>
+          <button
+            onClick={() => setShowNewUserForm((v) => !v)}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow text-sm"
+          >
+            {showNewUserForm ? 'Annulla' : '+ Nuovo Utente'}
+          </button>
+        </div>
+
+        {showNewUserForm && (
+          <div className="border border-blue-200 bg-blue-50 rounded-lg p-4">
+            <h2 className="font-semibold text-blue-900 mb-3">Nuovo utente</h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Email</label>
+                <input
+                  type="email"
+                  value={newUserForm.email}
+                  onChange={(e) => setNewUserForm((prev) => ({ ...prev, email: e.target.value }))}
+                  placeholder="fornitore@esempio.it"
+                  className="w-full p-2 border border-gray-300 rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Nome completo</label>
+                <input
+                  type="text"
+                  value={newUserForm.full_name}
+                  onChange={(e) => setNewUserForm((prev) => ({ ...prev, full_name: e.target.value }))}
+                  className="w-full p-2 border border-gray-300 rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Azienda</label>
+                <input
+                  type="text"
+                  value={newUserForm.company_name}
+                  onChange={(e) => setNewUserForm((prev) => ({ ...prev, company_name: e.target.value }))}
+                  className="w-full p-2 border border-gray-300 rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Ruolo</label>
+                <select
+                  value={newUserForm.role}
+                  onChange={(e) => setNewUserForm((prev) => ({ ...prev, role: e.target.value }))}
+                  className="w-full p-2 border border-gray-300 rounded"
+                >
+                  <option value="fornitore">Fornitore</option>
+                  <option value="admin">Amministratore</option>
+                </select>
+              </div>
+            </div>
+
+            <h3 className="text-sm font-semibold text-gray-700 mb-2">Impianti assegnati</h3>
+            <div className="space-y-2 mb-4">
+              {plants.map((plant) => {
+                const checked = Object.prototype.hasOwnProperty.call(newUserPlants, plant.id);
+                return (
+                  <div
+                    key={plant.id}
+                    className="flex flex-wrap items-center gap-3 bg-white border border-gray-200 rounded px-3 py-2"
+                  >
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 flex-1 min-w-[150px]">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => togglePlantForNewUser(plant.id, e.target.checked)}
+                      />
+                      {plant.name}
+                    </label>
+                    <select
+                      value={newUserPlants[plant.id] || 'read'}
+                      onChange={(e) => setNewUserPlantLevel(plant.id, e.target.value)}
+                      disabled={!checked}
+                      className="p-1.5 border border-gray-300 rounded text-sm disabled:opacity-40"
+                    >
+                      <option value="read">Sola lettura</option>
+                      <option value="write">Scrittura</option>
+                    </select>
+                  </div>
+                );
+              })}
+              {plants.length === 0 && (
+                <p className="text-xs text-gray-500">Crea prima almeno un impianto in anagrafica.</p>
+              )}
+            </div>
+
+            <button
+              onClick={inviteUser}
+              disabled={inviting}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg text-sm disabled:opacity-50"
+            >
+              {inviting ? 'Invio invito in corso...' : 'Invita utente'}
+            </button>
+            <p className="text-xs text-gray-500 mt-2">
+              L'utente riceverà una email per impostare autonomamente la propria password.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
